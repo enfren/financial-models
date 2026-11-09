@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>FP&A Budget Variance</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 12px; margin-bottom: 20px; }
+  .section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
+  .section h2 { font-size: 14px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: right; padding: 7px 8px; border-bottom: 2px solid #ddd; font-weight: 600; background: #fafafa; }
+  th:first-child { text-align: left; }
+  td { padding: 6px 8px; text-align: right; border-bottom: 1px solid #f0f0f0; }
+  td:first-child { text-align: left; font-weight: 500; }
+  .fav { color: #27ae60; font-weight: 600; }
+  .unfav { color: #c0392b; font-weight: 600; }
+  .flag { background: #fff3cd; }
+  .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .sum-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; }
+  .sum-card .label { font-size: 11px; color: #888; text-transform: uppercase; }
+  .sum-card .val { font-size: 20px; font-weight: 700; margin-top: 2px; }
+  .waterfall { display: flex; align-items: flex-end; gap: 4px; height: 120px; margin-top: 12px; }
+  .waterfall .bar { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+  .waterfall .bar .fill { width: 100%; border-radius: 3px 3px 0 0; min-height: 2px; }
+  .waterfall .bar .lbl { font-size: 9px; margin-top: 4px; color: #666; text-align: center; }
+  .materiality { font-size: 11px; color: #888; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>FP&A Budget vs. Actual — Q3 2026</h1>
+  <p class="subtitle">Variance analysis with materiality flags (≥5% AND ≥$50K). Favorable = green, Unfavorable = red.</p>
+
+  <div class="summary-grid" id="summary"></div>
+
+  <div class="section">
+    <h2>Variance Detail</h2>
+    <p class="materiality">Materiality threshold: |variance| ≥ 5% AND ≥ $50K</p>
+    <table id="varTable"></table>
+  </div>
+
+  <div class="section">
+    <h2>Profit Impact Waterfall</h2>
+    <div class="waterfall" id="waterfall"></div>
+  </div>
+</div>
+
+<script>
+const data = [
+  { dept: 'Revenue', account: 'Subscription', budget: 4200, actual: 4580, type: 'revenue' },
+  { dept: 'Revenue', account: 'Services', budget: 1800, actual: 1650, type: 'revenue' },
+  { dept: 'COGS', account: 'Hosting', budget: 450, actual: 520, type: 'expense' },
+  { dept: 'COGS', account: 'Support', budget: 380, actual: 355, type: 'expense' },
+  { dept: 'OpEx', account: 'Salaries', budget: 2800, actual: 3100, type: 'expense' },
+  { dept: 'OpEx', account: 'Marketing', budget: 600, actual: 480, type: 'expense' },
+  { dept: 'OpEx', account: 'Travel', budget: 150, actual: 210, type: 'expense' },
+  { dept: 'OpEx', account: 'Software', budget: 200, actual: 245, type: 'expense' },
+  { dept: 'OpEx', account: 'Facilities', budget: 320, actual: 310, type: 'expense' },
+];
+
+const MAT_PCT = 5, MAT_DOL = 50;
+
+function analyze() {
+  const rows = data.map(d => {
+    const varD = d.actual - d.budget;
+    const varP = (varD / d.budget) * 100;
+    // Favorable: revenue over budget, expense under budget
+    const fav = d.type === 'revenue' ? varD > 0 : varD < 0;
+    const material = Math.abs(varP) >= MAT_PCT && Math.abs(varD) >= MAT_DOL;
+    return { ...d, varD, varP, fav, material };
+  });
+
+  const totalRev = rows.filter(r => r.type === 'revenue').reduce((s, r) => s + r.actual, 0);
+  const totalBudRev = rows.filter(r => r.type === 'revenue').reduce((s, r) => s + r.budget, 0);
+  const totalExp = rows.filter(r => r.type === 'expense').reduce((s, r) => s + r.actual, 0);
+  const totalBudExp = rows.filter(r => r.type === 'expense').reduce((s, r) => s + r.budget, 0);
+  const profit = totalRev - totalExp;
+  const budProfit = totalBudRev - totalBudExp;
+  const profitVar = profit - budProfit;
+
+  return { rows, totalRev, totalBudRev, totalExp, totalBudExp, profit, budProfit, profitVar };
+}
+
+function render() {
+  const { rows, totalRev, totalBudRev, totalExp, totalBudExp, profit, budProfit, profitVar } = analyze();
+
+  document.getElementById('summary').innerHTML = `
+    <div class="sum-card"><div class="label">Actual Operating Profit</div><div class="val">$${profit.toLocaleString()}K</div></div>
+    <div class="sum-card"><div class="label">Budgeted Operating Profit</div><div class="val">$${budProfit.toLocaleString()}K</div></div>
+    <div class="sum-card"><div class="label">Profit Variance</div><div class="val ${profitVar>=0?'fav':'unfav'}">${profitVar>=0?'+':''}$${profitVar.toLocaleString()}K (${(profitVar/budProfit*100).toFixed(1)}%)</div></div>`;
+
+  let html = `<tr><th>Account</th><th>Budget</th><th>Actual</th><th>$ Var</th><th>% Var</th><th>Flag</th></tr>`;
+  rows.forEach(r => {
+    const cls = r.fav ? 'fav' : 'unfav';
+    const rowCls = r.material ? ' class="flag"' : '';
+    html += `<tr${rowCls}><td>${r.account}</td><td>$${r.budget.toLocaleString()}K</td><td>$${r.actual.toLocaleString()}K</td><td class="${cls}">${r.varD>=0?'+':''}$${r.varD.toLocaleString()}K</td><td class="${cls}">${r.varP>=0?'+':''}${r.varP.toFixed(1)}%</td><td>${r.material ? '⚠ Material' : ''}</td></tr>`;
+  });
+  // Totals
+  html += `<tr style="font-weight:700;border-top:2px solid #333"><td>Total Revenue</td><td>$${totalBudRev.toLocaleString()}K</td><td>$${totalRev.toLocaleString()}K</td><td class="${totalRev-totalBudRev>=0?'fav':'unfav'}">${totalRev-totalBudRev>=0?'+':''}$${(totalRev-totalBudRev).toLocaleString()}K</td><td></td><td></td></tr>`;
+  html += `<tr style="font-weight:700"><td>Total Expenses</td><td>$${totalBudExp.toLocaleString()}K</td><td>$${totalExp.toLocaleString()}K</td><td class="${totalExp-totalBudExp<=0?'fav':'unfav'}">${totalExp-totalBudExp>=0?'+':''}$${(totalExp-totalBudExp).toLocaleString()}K</td><td></td><td></td></tr>`;
+  html += `<tr style="font-weight:700;border-top:2px solid #333"><td>Operating Profit</td><td>$${budProfit.toLocaleString()}K</td><td>$${profit.toLocaleString()}K</td><td class="${profitVar>=0?'fav':'unfav'}">${profitVar>=0?'+':''}$${profitVar.toLocaleString()}K</td><td></td><td></td></tr>`;
+  document.getElementById('varTable').innerHTML = html;
+
+  // Waterfall: budget profit → each variance → actual profit
+  const items = [{ label: 'Budget', val: budProfit, type: 'total' }];
+  rows.forEach(r => items.push({ label: r.account, val: r.type === 'revenue' ? r.varD : -r.varD, type: 'var' }));
+  items.push({ label: 'Actual', val: profit, type: 'total' });
+
+  const maxAbs = Math.max(...items.map(i => Math.abs(i.val)), 1);
+  const wf = document.getElementById('waterfall');
+  let running = 0;
+  wf.innerHTML = items.map(item => {
+    if (item.type === 'total') {
+      const h = (item.val / maxAbs) * 100;
+      running = item.val;
+      return `<div class="bar"><div class="fill" style="height:${h}%;background:#4a90d9"></div><div class="lbl">${item.label}</div></div>`;
+    } else {
+      const start = running;
+      const end = running + item.val;
+      running = end;
+      const bottom = Math.min(start, end) / maxAbs * 100;
+      const h = Math.abs(item.val) / maxAbs * 100;
+      const color = item.val >= 0 ? '#27ae60' : '#c0392b';
+      return `<div class="bar"><div class="fill" style="height:${h}%;background:${color};margin-bottom:${bottom}%"></div><div class="lbl">${item.label}</div></div>`;
+    }
+  }).join('');
+}
+
+render();
+</script>
+</body>
+</html>   

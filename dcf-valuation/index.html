@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DCF Valuation</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .subtitle { color: #666; font-size: 12px; margin-bottom: 20px; }
+  .grid2 { display: grid; grid-template-columns: 320px 1fr; gap: 16px; }
+  .section { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 16px; }
+  .section h2 { font-size: 14px; margin-bottom: 10px; }
+  .inputs table { width: 100%; border-collapse: collapse; }
+  .inputs td { padding: 5px 6px; border-bottom: 1px solid #f0f0f0; }
+  .inputs td:last-child { width: 90px; }
+  .inputs input { width: 80px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; }
+  .inputs input:focus { outline: none; border-color: #4a90d9; }
+  .result-hero { text-align: center; padding: 20px; background: #f8f9fa; border-radius: 8px; margin-bottom: 16px; }
+  .result-hero .price { font-size: 36px; font-weight: 700; }
+  .result-hero .vs { font-size: 13px; color: #666; margin-top: 4px; }
+  .result-hero .verdict { font-size: 14px; font-weight: 600; margin-top: 8px; padding: 4px 12px; border-radius: 4px; display: inline-block; }
+  .undervalued { background: #d4edda; color: #155724; }
+  .overvalued { background: #f8d7da; color: #721c24; }
+  .fair { background: #fff3cd; color: #856404; }
+  table.dcf { width: 100%; border-collapse: collapse; font-size: 11px; }
+  table.dcf th { padding: 5px 6px; text-align: right; border-bottom: 2px solid #ddd; font-weight: 600; }
+  table.dcf th:first-child { text-align: left; }
+  table.dcf td { padding: 4px 6px; text-align: right; border-bottom: 1px solid #f0f0f0; }
+  table.dcf td:first-child { text-align: left; }
+  .sensitivity { margin-top: 16px; }
+  .sensitivity table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .sensitivity th, .sensitivity td { padding: 5px 6px; text-align: center; border: 1px solid #e0e0e0; }
+  .sensitivity .green { background: #d4edda; }
+  .sensitivity .yellow { background: #fff3cd; }
+  .sensitivity .red { background: #f8d7da; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Discounted Cash Flow (DCF) Valuation</h1>
+  <p class="subtitle">2-stage DCF with explicit 5-year forecast, terminal value, and sensitivity analysis. All assumptions editable.</p>
+
+  <div class="grid2">
+    <div class="section inputs">
+      <h2>Assumptions</h2>
+      <table>
+        <tr><td>Current Price ($)</td><td><input type="number" id="price" value="178.50" step="0.01"></td></tr>
+        <tr><td>Shares Outstanding (M)</td><td><input type="number" id="shares" value="15.2" step="0.1"></td></tr>
+        <tr><td>Net Debt ($B)</td><td><input type="number" id="netDebt" value="0" step="0.1"></td></tr>
+        <tr><td>Revenue ($B)</td><td><input type="number" id="revenue" value="394" step="1"></td></tr>
+        <tr><td>Revenue Growth Y1-Y5 (%)</td><td><input type="number" id="growth" value="12" step="0.5"></td></tr>
+        <tr><td>FCF Margin (%)</td><td><input type="number" id="fcfMargin" value="28" step="1"></td></tr>
+        <tr><td>WACC (%)</td><td><input type="number" id="wacc" value="9.5" step="0.1"></td></tr>
+        <tr><td>Terminal Growth (%)</td><td><input type="number" id="termG" value="3" step="0.1"></td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="result-hero" id="hero"></div>
+      <div class="section"><h2>DCF Bridge</h2><div id="dcfTable"></div></div>
+      <div class="section sensitivity"><h2>Sensitivity: Intrinsic Value per Share</h2><div id="sensTable"></div>
+        <p style="font-size:11px;color:#888;margin-top:8px">Rows = WACC, Columns = Terminal Growth. Green = undervalued vs. current price.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function getVal(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+function runDCF(wacc, termG) {
+  const rev = getVal('revenue');
+  const growth = getVal('growth') / 100;
+  const margin = getVal('fcfMargin') / 100;
+  const shares = getVal('shares');
+  const netDebt = getVal('netDebt') * 1000; // $B → $M
+  const price = getVal('price');
+
+  const years = [];
+  let r = rev;
+  for (let i = 1; i <= 5; i++) {
+    r *= (1 + growth);
+    const fcf = r * margin;
+    const pv = fcf / Math.pow(1 + wacc, i);
+    years.push({ year: i, rev: r, fcf, pv });
+  }
+
+  const tv = (years[4].fcf * (1 + termG)) / (wacc - termG);
+  const pvTV = tv / Math.pow(1 + wacc, 5);
+  const sumPV = years.reduce((s, y) => s + y.pv, 0);
+  const enterpriseValue = sumPV + pvTV;
+  const equityValue = enterpriseValue - netDebt;
+  const perShare = equityValue / shares;
+
+  return { years, tv, pvTV, sumPV, enterpriseValue, equityValue, perShare, price };
+}
+
+function render() {
+  const wacc = getVal('wacc') / 100;
+  const termG = getVal('termG') / 100;
+  const price = getVal('price');
+  const res = runDCF(wacc, termG);
+
+  // Hero
+  const diff = res.perShare - price;
+  const diffPct = (diff / price) * 100;
+  const cls = diffPct > 10 ? 'undervalued' : diffPct < -10 ? 'overvalued' : 'fair';
+  const label = diffPct > 10 ? 'Undervalued' : diffPct < -10 ? 'Overvalued' : 'Fairly Valued';
+  document.getElementById('hero').innerHTML = `
+    <div style="font-size:12px;color:#888">INTRINSIC VALUE / SHARE</div>
+    <div class="price">$${res.perShare.toFixed(2)}</div>
+    <div class="vs">vs. current price $${price.toFixed(2)} (${diff>=0?'+':''}${diffPct.toFixed(1)}%)</div>
+    <div class="verdict ${cls}">${label}</div>`;
+
+  // DCF table
+  let html = `<table class="dcf"><tr><th></th><th>Y1</th><th>Y2</th><th>Y3</th><th>Y4</th><th>Y5</th><th>Total</th></tr>
+    <tr><td>Revenue ($B)</td>${res.years.map(y=>`<td>${y.rev.toFixed(1)}</td>`).join('')}<td></td></tr>
+    <tr><td>FCF ($M)</td>${res.years.map(y=>`<td>${y.fcf.toFixed(0)}</td>`).join('')}<td></td></tr>
+    <tr><td>Discount Factor</td>${res.years.map((y,i)=>`<td>${(1/Math.pow(1+wacc,i+1)).toFixed(4)}</td>`).join('')}<td></td></tr>
+    <tr><td>PV of FCF ($M)</td>${res.years.map(y=>`<td>${y.pv.toFixed(0)}</td>`).join('')}<td><b>${res.sumPV.toFixed(0)}</b></td></tr>
+  </table>
+  <table class="dcf" style="margin-top:8px">
+    <tr><td>Terminal Value ($M)</td><td colspan="6" style="text-align:right"><b>${res.tv.toFixed(0)}</b></td></tr>
+    <tr><td>PV of Terminal Value</td><td colspan="6" style="text-align:right"><b>${res.pvTV.toFixed(0)}</b></td></tr>
+    <tr><td>Enterprise Value</td><td colspan="6" style="text-align:right"><b>${res.enterpriseValue.toFixed(0)}</b></td></tr>
+    <tr><td>− Net Debt</td><td colspan="6" style="text-align:right">(${getVal('netDebt')*1000})</td></tr>
+    <tr><td>Equity Value</td><td colspan="6" style="text-align:right"><b>${res.equityValue.toFixed(0)}</b></td></tr>
+    <tr><td>÷ Shares (M)</td><td colspan="6" style="text-align:right">${getVal('shares')}</td></tr>
+    <tr style="font-weight:700;border-top:2px solid #333"><td>Intrinsic Value / Share</td><td colspan="6" style="text-align:right;font-size:14px">$${res.perShare.toFixed(2)}</td></tr>
+  </table>`;
+  document.getElementById('dcfTable').innerHTML = html;
+
+  // Sensitivity table
+  const waccs = [8, 9, 9.5, 10, 11, 12].map(x => x / 100);
+  const tgs = [2, 2.5, 3, 3.5, 4].map(x => x / 100);
+  let shtml = `<table><tr><th>WACC \\ TG</th>${tgs.map(t=>`<th>${(t*100).toFixed(1)}%</th>`).join('')}</tr>`;
+  waccs.forEach(w => {
+    shtml += `<tr><td style="font-weight:600">${(w*100).toFixed(1)}%</td>`;
+    tgs.forEach(t => {
+      const v = runDCF(w, t).perShare;
+      const pct = (v - price) / price * 100;
+      const cls = pct > 10 ? 'green' : pct < -10 ? 'red' : 'yellow';
+      shtml += `<td class="${cls}">$${v.toFixed(0)}</td>`;
+    });
+    shtml += '</tr>';
+  });
+  shtml += '</table>';
+  document.getElementById('sensTable').innerHTML = shtml;
+}
+
+document.querySelectorAll('.inputs input').forEach(el => el.addEventListener('input', render));
+render();
+</script>
+</body>
+</html>   

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Three-Statement Model</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 13px/1.5 -apple-system, 'Segoe UI', sans-serif; background: #f5f5f5; color: #1a1a1a; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .subtitle { color: #666; margin-bottom: 20px; font-size: 12px; }
+  .assumptions { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px; }
+  .assumptions h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: #555; margin-bottom: 10px; }
+  .assumptions table { width: 100%; border-collapse: collapse; }
+  .assumptions td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
+  .assumptions td:last-child { width: 100px; }
+  .assumptions input { width: 80px; padding: 3px 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; }
+  .assumptions input:focus { outline: none; border-color: #4a90d9; }
+  .statements { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  .statement { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; }
+  .statement h2 { font-size: 14px; padding: 10px 16px; background: #fafafa; border-bottom: 1px solid #e0e0e0; }
+  table.grid { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.grid th { background: #f8f8f8; padding: 6px 10px; text-align: right; border-bottom: 1px solid #ddd; font-weight: 600; }
+  table.grid th:first-child { text-align: left; }
+  table.grid td { padding: 5px 10px; text-align: right; border-bottom: 1px solid #f0f0f0; }
+  table.grid td:first-child { text-align: left; }
+  table.grid tr.total td { font-weight: 700; border-top: 2px solid #333; }
+  table.grid tr.subtotal td { font-weight: 600; border-top: 1px solid #999; }
+  .neg { color: #c0392b; }
+  .pos { color: #27ae60; }
+  .balance-check { margin-top: 12px; padding: 8px 16px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  .balanced { background: #d4edda; color: #155724; }
+  .unbalanced { background: #f8d7da; color: #721c24; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Three-Statement Financial Model</h1>
+  <p class="subtitle">Driver-based 5-year forecast. Edit assumptions to see all three statements update.</p>
+
+  <div class="assumptions">
+    <h2>Assumptions</h2>
+    <table>
+      <tr><td>Starting Revenue</td><td><input type="number" id="rev0" value="10000" step="500"></td></tr>
+      <tr><td>Revenue Growth Rate</td><td><input type="number" id="revGrowth" value="15" step="1">%</td></tr>
+      <tr><td>Gross Margin</td><td><input type="number" id="gm" value="60" step="1">%</td></tr>
+      <tr><td>OpEx as % of Revenue</td><td><input type="number" id="opex" value="30" step="1">%</td></tr>
+      <tr><td>Depreciation as % of Revenue</td><td><input type="number" id="dep" value="5" step="0.5">%</td></tr>
+      <tr><td>Tax Rate</td><td><input type="number" id="tax" value="25" step="1">%</td></tr>
+      <tr><td>CapEx as % of Revenue</td><td><input type="number" id="capex" value="8" step="0.5">%</td></tr>
+      <tr><td>Starting Cash</td><td><input type="number" id="cash0" value="5000" step="500"></td></tr>
+      <tr><td>Starting Debt</td><td><input type="number" id="debt0" value="20000" step="1000"></td></tr>
+      <tr><td>Interest Rate on Debt</td><td><input type="number" id="intRate" value="6" step="0.5">%</td></tr>
+      <tr><td>Debt Repayment / yr</td><td><input type="number" id="debtPay" value="2000" step="500"></td></tr>
+      <tr><td>DIO (Days Inventory)</td><td><input type="number" id="dio" value="45" step="1"></td></tr>
+      <tr><td>DIO → DSO (Days Sales Outstanding)</td><td><input type="number" id="dso" value="30" step="1"></td></tr>
+      <tr><td>DPO (Days Payable Outstanding)</td><td><input type="number" id="dpo" value="40" step="1"></td></tr>
+    </table>
+  </div>
+
+  <div class="statements">
+    <div class="statement"><h2>Income Statement ($K)</h2><div id="is"></div></div>
+    <div class="statement"><h2>Balance Sheet ($K)</h2><div id="bs"></div></div>
+    <div class="statement"><h2>Cash Flow Statement ($K)</h2><div id="cf"></div></div>
+  </div>
+  <div id="balanceCheck" class="balance-check"></div>
+</div>
+
+<script>
+const YEARS = [1,2,3,4,5];
+
+function getVal(id) { return parseFloat(document.getElementById(id).value) || 0; }
+
+function buildModel() {
+  const rev0 = getVal('rev0'), g = getVal('revGrowth')/100, gm = getVal('gm')/100;
+  const opexPct = getVal('opex')/100, depPct = getVal('dep')/100, taxRate = getVal('tax')/100;
+  const capexPct = getVal('capex')/100, cash0 = getVal('cash0'), debt0 = getVal('debt0');
+  const intRate = getVal('intRate')/100, debtPay = getVal('debtPay');
+  const dio = getVal('dio'), dso = getVal('dso'), dpo = getVal('dpo');
+
+  const m = { rev: [], cogs: [], gp: [], opex: [], dep: [], ebit: [], int: [], ebt: [], tax: [], ni: [] };
+  let cash = cash0, debt = debt0, ppe = 5000, retained = 10000;
+  let inv = rev0 * (1-gm) * dio/365, ar = rev0 * dso/365, ap = rev0*(1-gm) * dpo/365;
+
+  YEARS.forEach((yr, i) => {
+    const rev = rev0 * Math.pow(1+g, i+1);
+    const cogs = rev * (1-gm);
+    const opex = rev * opexPct;
+    const dep = rev * depPct;
+    const ebit = rev - cogs - opex - dep;
+    const interest = debt * intRate;
+    const ebt = ebit - interest;
+    const tax = Math.max(0, ebt * taxRate);
+    const ni = ebt - tax;
+    const capex = rev * capexPct;
+
+    m.rev.push(rev); m.cogs.push(cogs); m.gp.push(rev - cogs);
+    m.opex.push(opex); m.dep.push(dep); m.ebit.push(ebit);
+    m.int.push(interest); m.ebt.push(ebt); m.tax.push(tax); m.ni.push(ni);
+
+    // Working capital
+    const newInv = (rev - cogs) * dio/365;
+    const newAr = rev * dso/365;
+    const newAp = (rev - cogs) * dpo/365;
+    const dWC = (newAr + newInv - ap - inv) - (newAp - ap);
+    const dWC_actual = (newAr - ar) + (newInv - inv) - (newAp - ap);
+
+    // Cash flow
+    const cfo = ni + dep - dWC_actual;
+    const cfi = -capex;
+    const cff = -debtPay;
+    const netChange = cfo + cfi + cff;
+    cash += netChange;
+
+    // Balance sheet
+    ppe += capex - dep;
+    retained += ni;
+    const totalAssets = cash + newAr + newInv + ppe;
+    const totalLiab = debt + newAp;
+    const equity = retained + 10000; // starting equity
+    const totalLE = totalLiab + equity;
+
+    m._wc.push({ ar: newAr, inv: newInv, ap: newAp, ppe, cash, debt, retained, equity, totalAssets, totalLiab, totalLE });
+    ar = newAr; inv = newInv; ap = newAp;
+    debt = Math.max(0, debt - debtPay);
+  });
+
+  return m;
+}
+
+function fmt(n) {
+  const s = Math.abs(n) >= 1000 ? (n/1000).toFixed(1) + 'M' : n.toFixed(0);
+  return n < 0 ? `(${Math.abs(n).toFixed(0)})` : s;
+}
+
+function render() {
+  const m = buildModel();
+  const headers = YEARS.map(y => `<th>Y${y}</th>`).join('');
+
+  // Income Statement
+  document.getElementById('is').innerHTML = `<table class="grid"><tr><th></th>${headers}</tr>
+    <tr><td>Revenue</td>${m.rev.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr><td>COGS</td>${m.cogs.map(v=>`<td class="neg">(${fmt(v)})</td>`).join('')}</tr>
+    <tr class="subtotal"><td>Gross Profit</td>${m.gp.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr><td>OpEx</td>${m.opex.map(v=>`<td class="neg">(${fmt(v)})</td>`).join('')}</tr>
+    <tr><td>Depreciation</td>${m.dep.map(v=>`<td class="neg">(${fmt(v)})</td>`).join('')}</tr>
+    <tr class="subtotal"><td>EBIT</td>${m.ebit.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr><td>Interest</td>${m.int.map(v=>`<td class="neg">(${fmt(v)})</td>`).join('')}</tr>
+    <tr><td>EBT</td>${m.ebt.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr><td>Tax</td>${m.tax.map(v=>`<td class="neg">(${fmt(v)})</td>`).join('')}</tr>
+    <tr class="total"><td>Net Income</td>${m.ni.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+  </table>`;
+
+  // Balance Sheet
+  document.getElementById('bs').innerHTML = `<table class="grid"><tr><th></th>${headers}</tr>
+    <tr><td>Cash</td>${m._wc.map(w=>`<td>${fmt(w.cash)}</td>`).join('')}</tr>
+    <tr><td>Accounts Receivable</td>${m._wc.map(w=>`<td>${fmt(w.ar)}</td>`).join('')}</tr>
+    <tr><td>Inventory</td>${m._wc.map(w=>`<td>${fmt(w.inv)}</td>`).join('')}</tr>
+    <tr><td>Net PP&E</td>${m._wc.map(w=>`<td>${fmt(w.ppe)}</td>`).join('')}</tr>
+    <tr class="subtotal"><td>Total Assets</td>${m._wc.map(w=>`<td>${fmt(w.totalAssets)}</td>`).join('')}</tr>
+    <tr><td>Debt</td>${m._wc.map(w=>`<td>${fmt(w.debt)}</td>`).join('')}</tr>
+    <tr><td>Accounts Payable</td>${m._wc.map(w=>`<td>${fmt(w.ap)}</td>`).join('')}</tr>
+    <tr class="subtotal"><td>Total Liabilities</td>${m._wc.map(w=>`<td>${fmt(w.totalLiab)}</td>`).join('')}</tr>
+    <tr><td>Equity</td>${m._wc.map(w=>`<td>${fmt(w.equity)}</td>`).join('')}</tr>
+    <tr class="total"><td>Total Liab + Equity</td>${m._wc.map(w=>`<td>${fmt(w.totalLE)}</td>`).join('')}</tr>
+  </table>`;
+
+  // Cash Flow
+  const cfo = m.ni.map((ni,i) => ni + m.dep[i]);
+  const capex = m.rev.map(v => v * getVal('capex')/100);
+  document.getElementById('cf').innerHTML = `<table class="grid"><tr><th></th>${headers}</tr>
+    <tr><td>Net Income</td>${m.ni.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr><td>+ Depreciation</td>${m.dep.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr class="subtotal"><td>Operating CF</td>${cfo.map(v=>`<td>${fmt(v)}</td>`).join('')}</tr>
+    <tr><td>CapEx</td>${capex.map(v=>`<td class="neg">(${fmt(v)})</td>`).join('')}</tr>
+    <tr><td>Debt Repayment</td>${m._wc.map(()=>`<td class="neg">(${fmt(getVal('debtPay'))})</td>`).join('')}</tr>
+    <tr class="total"><td>Net Change in Cash</td>${m._wc.map((w,i)=>`<td>${fmt(cfo[i]-capex[i]-getVal('debtPay'))}</td>`).join('')}</tr>
+  </table>`;
+
+  // Balance check
+  const last = m._wc[m._wc.length-1];
+  const diff = Math.abs(last.totalAssets - last.totalLE);
+  const el = document.getElementById('balanceCheck');
+  if (diff < 1) {
+    el.className = 'balance-check balanced';
+    el.textContent = `✓ Balance sheet balances in Year 5 (Δ = $${diff.toFixed(2)}K)`;
+  } else {
+    el.className = 'balance-check unbalanced';
+    el.textContent = `⚠ Balance sheet off by $${diff.toFixed(2)}K in Year 5`;
+  }
+}
+
+document.querySelectorAll('.assumptions input').forEach(el => el.addEventListener('input', render));
+render();
+</script>
+</body>
+</html>   
